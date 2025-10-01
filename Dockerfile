@@ -1,0 +1,15 @@
+# Usa una imagen de Python ligera (Alpine)
+FROM python:3.11-alpine
+
+# Establece el directorio de trabajo dentro del contenedor
+WORKDIR /app
+
+# Copia los archivos necesarios (ya no necesitas credentials-python.json)
+COPY requirements.txt .
+COPY main.py .
+
+# Instala las dependencias
+RUN pip install --no-cache-dir -r requirements.txt
+
+# El comando de inicio para FastAPI
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
