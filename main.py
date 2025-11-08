@@ -5,19 +5,20 @@ from docx import Document
 from pptx import Presentation
 import io
 from pydantic import BaseModel
+from contextlib import asynccontextmanager
 
 # --- Configuración ---
 SERVICE_ACCOUNT_FILE = "credentials-python.json"  # tu JSON de service account
 SCOPES = ["https://www.googleapis.com/auth/drive.readonly"]
 folder_id = "1JVV3OVjabbHIVvJZSb338w6ZrieDJ3IS"  # carpeta raíz con asignaturas
 
-app = FastAPI()
 service = None
 
 
 # --- Evento de inicio para autenticar una vez ---
-@app.on_event("startup")
-def startup_event():
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
     global service
     try:
         creds = service_account.Credentials.from_service_account_file(
@@ -28,6 +29,24 @@ def startup_event():
     except Exception as e:
         service = None
         print(f"Error fatal durante la autenticación: {e}")
+
+    yield
+
+    # Shutdown
+    pass
+
+app = FastAPI(lifespan=lifespan)
+
+
+# --- Endpoint básico para health check ---
+@app.get("/")
+async def root():
+    return {"message": "API de extracción de Google Drive funcionando correctamente"}
+
+
+@app.get("/health")
+async def health_check():
+    return {"status": "ok", "service": "google_drive_extractor"}
 
 
 # --- Modelo de Pydantic para los datos de entrada ---
@@ -216,6 +235,7 @@ def get_files_in_folder(folder_id):
 def get_datos_ciclo(ciclo_num, semana_num):
     """
     Obtiene los datos de todas las asignaturas de un ciclo para una semana específica.
+    Devuelve una lista con formato simplificado.
     """
     ciclo_folder = find_item_in_folder(folder_id, f"{ciclo_num} ", is_prefix=True,
                                        mime_type="application/vnd.google-apps.folder")
@@ -229,39 +249,52 @@ def get_datos_ciclo(ciclo_num, semana_num):
     resultados_ciclo = []
     for asignatura_folder in asignaturas:
         print(f"Procesando asignatura: {asignatura_folder['name']}...")
-        datos_asignatura = {
-            "asignatura": {"nombre": asignatura_folder['name'], "id": asignatura_folder['id']}
-        }
 
-        # Búsqueda de sílabos (ahora insensible a mayúsculas)
-        # Buscamos la carpeta "1. silabo..." y extraemos TODOS los archivos de adentro
+        # Inicializar IDs como None
+        id_silabo = None
+        id_teoria = None
+        id_practica = None
+        id_laboratorio = None
+
+        # Búsqueda de sílabos
         silabo_folder = find_item_in_folder(asignatura_folder['id'], "1. silabo del curso",
                                             mime_type="application/vnd.google-apps.folder")
         if silabo_folder:
-            datos_asignatura["silabos"] = [{"nombre": f['name'], "id": f['id']} for f in
-                                           get_files_in_folder(silabo_folder['id'])]
-        else:
-            datos_asignatura["silabos"] = []  # Si no encuentra la carpeta, devuelve una lista vacía
+            id_silabo = silabo_folder['id']
 
-        # Búsqueda de material de enseñanza (ahora insensible a mayúsculas)
+        # Búsqueda de material de enseñanza
         material_folder = find_item_in_folder(asignatura_folder['id'], "2. material de enseñanza",
                                               mime_type="application/vnd.google-apps.folder")
         if material_folder:
-            # LLAMA A LA NUEVA FUNCIÓN Y OBTIENE LA ESTRUCTURA DETALLADA
+            # Obtener los IDs de las carpetas de cada tipo para la semana específica
             semana_detalle = evaluate_weekly_folders(material_folder['id'], semana_num)
 
-            datos_asignatura["material_semana"] = {
-                "semana": f"Semana {semana_num}",
-                "estado_general": semana_detalle["overall_status"],
-                "detalle_tipos": semana_detalle["data"]  # Teoría, Práctica, Laboratorio
-            }
-        else:
-            datos_asignatura["material_semana"] = {
-                "error": "Carpeta '2. Material de Enseñanza' no encontrada.",
-                "estado_general": "No Disponible"
-            }
+            if semana_detalle and "data" in semana_detalle:
+                detalle_tipos = semana_detalle["data"]
 
-        resultados_ciclo.append(datos_asignatura)
+                # Extraer los IDs de cada tipo
+                if "teoría" in detalle_tipos and detalle_tipos["teoría"]["folder_id"]:
+                    id_teoria = detalle_tipos["teoría"]["folder_id"]
+
+                if "práctica" in detalle_tipos and detalle_tipos["práctica"]["folder_id"]:
+                    id_practica = detalle_tipos["práctica"]["folder_id"]
+
+                if "laboratorio" in detalle_tipos and detalle_tipos["laboratorio"]["folder_id"]:
+                    id_laboratorio = detalle_tipos["laboratorio"]["folder_id"]
+
+        # Crear el item con el formato solicitado
+        item = {
+            "asignatura": asignatura_folder['name'],
+            "ciclo": ciclo_num,
+            "semana": semana_num,
+            "id_silabo": id_silabo,
+            "id_teoria": id_teoria,
+            "id_practica": id_practica,
+            "id_laboratorio": id_laboratorio,
+            "estado": "pendiente"
+        }
+
+        resultados_ciclo.append(item)
 
     return resultados_ciclo
 
@@ -269,5 +302,5 @@ def get_datos_ciclo(ciclo_num, semana_num):
 if __name__ == "__main__":
     import uvicorn
 
-    print("Iniciando servidor FastAPI en http://127.0.0.1:8000")
+    print("Iniciando servidor FastAPI en puerto 8000")
     uvicorn.run(app, host="0.0.0.0", port=8000)
