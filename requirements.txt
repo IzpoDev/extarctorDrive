@@ -3,3 +3,6 @@ uvicorn
 google-api-python-client
 pydantic
 requests
+python-docx
+python-multipart
+python-pptx  # <-- ¡AÑADE ESTA!
