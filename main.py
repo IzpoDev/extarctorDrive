@@ -3,6 +3,7 @@ from google.oauth2 import service_account
 from fastapi import FastAPI, HTTPException, File, UploadFile
 from docx import Document
 from pptx import Presentation
+from typing import Optional
 import io
 from pydantic import BaseModel
 from contextlib import asynccontextmanager
@@ -13,7 +14,11 @@ SCOPES = ["https://www.googleapis.com/auth/drive.readonly"]
 folder_id = "1JVV3OVjabbHIVvJZSb338w6ZrieDJ3IS"  # carpeta raíz con asignaturas
 
 service = None
-
+class WeeklyContentRequest(BaseModel):
+    asignatura: str
+    id_teoria: Optional[str] = None
+    id_practica: Optional[str] = None
+    id_laboratorio: Optional[str] = None
 
 # --- Evento de inicio para autenticar una vez ---
 @asynccontextmanager
@@ -115,8 +120,28 @@ async def ejecutar_extraccion(query: DriveQuery):
         return datos_completos
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Ocurrió un error durante la extracción: {str(e)}")
+@app.post("/extraer-contenido-semanal")
+async def extraer_contenido_semanal(req: WeeklyContentRequest):
+    if not service:
+        raise HTTPException(status_code=500, detail="El servicio de Google Drive no está autenticado.")
 
+    try:
+        collected_ids = []
+        seen = set()
 
+        for folder_id_param in (req.id_teoria, req.id_practica, req.id_laboratorio):
+            # skip None or empty strings
+            if folder_id_param and folder_id_param.strip():
+                archivos = get_files_in_folder(folder_id_param) or []
+                for f in archivos:
+                    fid = f.get("id")
+                    if fid and fid not in seen:
+                        seen.add(fid)
+                        collected_ids.append(fid)
+
+        return {"files": collected_ids}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error extrayendo contenido semanal: {e}")
 # --- Funciones Auxiliares ---
 
 # --- Nueva Función Auxiliar para la Evaluación Semanal Detallada (CORREGIDA) ---
