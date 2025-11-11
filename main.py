@@ -120,13 +120,14 @@ async def ejecutar_extraccion(query: DriveQuery):
         return datos_completos
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Ocurrió un error durante la extracción: {str(e)}")
+
 @app.post("/extraer-contenido-semanal")
 async def extraer_contenido_semanal(req: WeeklyContentRequest):
     if not service:
         raise HTTPException(status_code=500, detail="El servicio de Google Drive no está autenticado.")
 
     try:
-        collected_ids = []
+        files = []
         seen = set()
 
         for folder_id_param in (req.id_teoria, req.id_practica, req.id_laboratorio):
@@ -137,9 +138,12 @@ async def extraer_contenido_semanal(req: WeeklyContentRequest):
                     fid = f.get("id")
                     if fid and fid not in seen:
                         seen.add(fid)
-                        collected_ids.append(fid)
+                        row = {
+                        "id": fid,
+                        }
+                        files.append(row)
 
-        return {"files": collected_ids}
+        return files
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error extrayendo contenido semanal: {e}")
 # --- Funciones Auxiliares ---
