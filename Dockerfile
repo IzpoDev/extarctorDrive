@@ -4,7 +4,7 @@ FROM python:3.11-alpine
 # Establece el directorio de trabajo dentro del contenedor
 WORKDIR /app
 
-# Copia los archivos necesarios (ya no necesitas credentials-python.json)
+# Copia los archivos necesarios
 COPY requirements.txt .
 COPY main.py .
 
